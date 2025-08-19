@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createServer } from '@/lib/supabase/server';
+import { getAdminClient } from '@/lib/supabase/admin';
 
 type PostBody = {
   keyword?: string;
   target_wc?: number;
-  additional_details?: string | null; // NEW
+  additional_details?: string | null;
 };
 
 export async function POST(req: Request) {
@@ -19,7 +20,6 @@ export async function POST(req: Request) {
     const keyword = (body?.keyword || '').toString().trim();
     const target_wc = Number(body?.target_wc ?? 2500);
 
-    // clamp/normalize optional details
     const rawNotes = (body?.additional_details ?? '')?.toString?.() ?? '';
     const additional_details = rawNotes ? rawNotes.slice(0, 4000) : null;
 
@@ -33,13 +33,52 @@ export async function POST(req: Request) {
       );
     }
 
+    // ---- Credit / Free usage enforcement (admin client) ----
+    const admin = getAdminClient();
+
+    // Ensure wallet row exists
+    await admin.rpc('ensure_wallet', { p_user_id: user.id });
+
+    // Fetch current balance
+    const { data: wallet } = await admin
+      .from('user_wallets')
+      .select('balance')
+      .eq('user_id', user.id)
+      .single();
+
+    const balance = wallet?.balance ?? 0;
+
+    // Count this month's used free jobs (queued/running/drafted)
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const freeCountRes = await admin
+      .from('jobs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .in('status', ['queued', 'running', 'drafted'])
+      .gte('created_at', monthStart.toISOString());
+
+    const freeUsed = freeCountRes.count ?? 0;
+
+    const willDebit = balance > 0;
+
+    if (!willDebit && freeUsed >= 3) {
+      return NextResponse.json(
+        { error: 'No credits left. Free tier is 3 articles per month. Buy a pack or subscribe.' },
+        { status: 402 }
+      );
+    }
+
+    // ---- Create job row ----
     const { data: job, error } = await supabase
       .from('jobs')
       .insert({
         user_id: user.id,
         keyword,
         target_wc,
-        additional_details, // NEW
+        additional_details,
         status: 'queued',
       })
       .select('*')
@@ -50,6 +89,19 @@ export async function POST(req: Request) {
         { error: error?.message || 'Insert failed' },
         { status: 500 }
       );
+    }
+
+    // ---- If paid balance, debit 1 credit now (idempotent via RPC) ----
+    if (willDebit) {
+      const { data: ok, error: debitErr } = await admin
+        .rpc('debit_credit', { p_user_id: user.id, p_job_id: job.id });
+
+      if (debitErr || ok !== true) {
+        return NextResponse.json(
+          { error: 'Debit failed. Please add credits and try again.' },
+          { status: 402 }
+        );
+      }
     }
 
     // 🔔 Ping Make webhook and WAIT for acceptance (prevents dropped calls on serverless)
@@ -72,7 +124,7 @@ export async function POST(req: Request) {
             user_id: user.id,
             keyword,
             target_wc,
-            additional_details, // NEW → send to Make/OpenAI
+            additional_details,
           }),
           signal: ctrl.signal,
         });
@@ -80,12 +132,11 @@ export async function POST(req: Request) {
         clearTimeout(timer);
 
         if (!resp.ok) {
-          // Log on server for visibility; still return 201 so UI is responsive
           console.warn('Make webhook non-2xx', resp.status);
         }
       } catch (err) {
         console.error('Make webhook fetch failed:', (err as Error)?.message);
-        // Optional: you could flip this job to 'failed' here if you want strict behavior.
+        // Optional: mark job failed here and refund if you want stricter behavior.
       }
     }
 

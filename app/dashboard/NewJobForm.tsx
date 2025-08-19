@@ -1,20 +1,23 @@
 'use client';
 import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function NewJobForm() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [target, setTarget] = useState(2500);
-  const [notes, setNotes] = useState(''); // NEW: Additional Details
+  const [notes, setNotes] = useState(''); // optional details
   const [error, setError] = useState<string | null>(null);
+  const [noCredits, setNoCredits] = useState(false); // NEW
 
-  const MAX_NOTES = 4000; // ~4k chars to protect token costs
+  const MAX_NOTES = 4000;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setNoCredits(false);
     if (!keyword.trim()) {
       setError('Keyword is required');
       return;
@@ -27,21 +30,29 @@ export default function NewJobForm() {
         body: JSON.stringify({
           keyword,
           target_wc: target,
-          additional_details: notes ? notes.slice(0, MAX_NOTES) : null, // NEW
+          additional_details: notes ? notes.slice(0, MAX_NOTES) : null,
         }),
       });
+
       if (!res.ok) {
+        // Detect 402 to show the special banner
+        if (res.status === 402) {
+          setNoCredits(true);
+          const j = await res.json().catch(() => ({} as any));
+          setError(j?.error || 'No credits left.');
+          return;
+        }
         const j = await res.json().catch(() => ({} as any));
         throw new Error(j?.error || 'Failed to create job');
       }
-      // Reset fields
+
+      // Reset fields on success
       setKeyword('');
       setTarget(2500);
-      setNotes(''); // NEW
-      // Refresh the dashboard list
+      setNotes('');
       router.refresh();
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Unexpected error');
     } finally {
       setLoading(false);
     }
@@ -50,6 +61,30 @@ export default function NewJobForm() {
   return (
     <form onSubmit={onSubmit} className="mt-8 rounded-2xl border p-6 space-y-4">
       <h2 className="text-lg font-medium">New Draft</h2>
+
+      {/* 402 banner */}
+      {noCredits && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <div className="font-medium">You’ve used your 3 free articles this month.</div>
+          <div className="mt-1">
+            Buy a credit pack or subscribe to continue.
+          </div>
+          <div className="mt-2 flex gap-2">
+            <Link
+              href="/credits"
+              className="inline-block rounded-lg border px-3 py-1.5 hover:bg-white"
+            >
+              Buy credits
+            </Link>
+            <Link
+              href="/subscribe"
+              className="inline-block rounded-lg border px-3 py-1.5 hover:bg-white"
+            >
+              View plans
+            </Link>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <input
@@ -71,7 +106,6 @@ export default function NewJobForm() {
         />
       </div>
 
-      {/* NEW: Additional Details (optional) */}
       <div>
         <label className="block text-sm font-medium">Additional details (optional)</label>
         <textarea
