@@ -1,23 +1,31 @@
 import { NextResponse } from 'next/server';
 import { createServer } from '@/lib/supabase/server';
 
+type PostBody = {
+  keyword?: string;
+  target_wc?: number;
+};
+
 export async function POST(req: Request) {
   try {
-    const supabase = createServer();
+    const supabase = await createServer(); // ⬅️ await
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const body = await req.json().catch(() => null);
+    const body = (await req.json().catch(() => null)) as PostBody | null;
     const keyword = (body?.keyword || '').toString().trim();
-    const target_wc = Number(body?.target_wc || 2500);
+    const target_wc = Number(body?.target_wc ?? 2500);
 
     if (!keyword) {
       return NextResponse.json({ error: 'Keyword is required' }, { status: 400 });
     }
     if (!Number.isFinite(target_wc) || target_wc < 500 || target_wc > 6000) {
-      return NextResponse.json({ error: 'target_wc must be between 500 and 6000' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'target_wc must be between 500 and 6000' },
+        { status: 400 }
+      );
     }
 
     const { data: job, error } = await supabase
@@ -26,13 +34,16 @@ export async function POST(req: Request) {
         user_id: user.id,
         keyword,
         target_wc,
-        status: 'queued'
+        status: 'queued',
       })
       .select('*')
       .single();
 
     if (error || !job) {
-      return NextResponse.json({ error: error?.message || 'Insert failed' }, { status: 500 });
+      return NextResponse.json(
+        { error: error?.message || 'Insert failed' },
+        { status: 500 }
+      );
     }
 
     // 🔔 Ping Make webhook (fire-and-forget)
@@ -43,19 +54,23 @@ export async function POST(req: Request) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-voxa-secret': webhookSecret
+          'x-voxa-secret': webhookSecret,
         },
         body: JSON.stringify({
           job_id: job.id,
           user_id: user.id,
           keyword,
-          target_wc
-        })
+          target_wc,
+        }),
       }).catch(() => {});
     }
 
-    return NextResponse.json({ job_id: job.id, status: job.status }, { status: 201 });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Unexpected error' }, { status: 500 });
+    return NextResponse.json(
+      { job_id: job.id, status: job.status },
+      { status: 201 }
+    );
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Unexpected error';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

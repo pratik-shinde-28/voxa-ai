@@ -2,13 +2,32 @@ import { createServer } from '@/lib/supabase/server';
 import Link from 'next/link';
 import NewJobForm from './NewJobForm';
 
+type Job = {
+  id: string;
+  user_id: string;
+  keyword: string;
+  target_wc: number;
+  status: 'queued' | 'running' | 'revising' | 'drafted' | 'failed';
+  slug: string | null;
+  wp_post_id: string | null;
+  wp_url: string | null;
+  error: string | null;
+  created_at: string; // ISO timestamp
+  updated_at: string | null;
+};
+
 async function getUserAndJobs() {
-  const supabase = createServer();
-  const [{ data: { user } }, { data: jobs, error }] = await Promise.all([
+  const supabase = await createServer(); // ⬅️ await
+  const [{ data: { user } }, { data: jobs }] = await Promise.all([
     supabase.auth.getUser(),
-    supabase.from('jobs').select('*').order('created_at', { ascending: false }).limit(10)
+    supabase
+      .from('jobs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10),
   ]);
-  return { user, jobs: jobs || [], error };
+
+  return { user, jobs: (jobs as Job[]) || [] };
 }
 
 export default async function Dashboard() {
@@ -37,14 +56,20 @@ export default async function Dashboard() {
           <h2 className="text-lg font-medium">Recent Jobs</h2>
         </div>
         <ul className="divide-y">
-          {jobs.map((j: any) => (
+          {jobs.map((j) => (
             <li key={j.id} className="p-4 text-sm">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="font-medium">{j.keyword}</div>
                   <div className="text-gray-600">
-                    {j.status}{j.slug ? ` • ${j.slug}` : ''}{j.wp_url ? ' • ' : ''}
-                    {j.wp_url ? <a className="underline" href={j.wp_url} target="_blank">View draft</a> : null}
+                    {j.status}
+                    {j.slug ? ` • ${j.slug}` : ''}
+                    {j.wp_url ? ' • ' : ''}
+                    {j.wp_url ? (
+                      <a className="underline" href={j.wp_url} target="_blank">
+                        View draft
+                      </a>
+                    ) : null}
                   </div>
                 </div>
                 <div className="text-gray-500">
@@ -54,7 +79,9 @@ export default async function Dashboard() {
               {j.error ? <div className="text-red-600 mt-1">Error: {j.error}</div> : null}
             </li>
           ))}
-          {jobs.length === 0 && <li className="p-4 text-sm text-gray-600">No jobs yet.</li>}
+          {jobs.length === 0 && (
+            <li className="p-4 text-sm text-gray-600">No jobs yet.</li>
+          )}
         </ul>
       </div>
     </main>
