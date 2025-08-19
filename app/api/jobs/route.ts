@@ -8,7 +8,7 @@ type PostBody = {
 
 export async function POST(req: Request) {
   try {
-    const supabase = await createServer(); // ⬅️ await
+    const supabase = await createServer();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -46,23 +46,40 @@ export async function POST(req: Request) {
       );
     }
 
-    // 🔔 Ping Make webhook (fire-and-forget)
+    // 🔔 Ping Make webhook and WAIT for acceptance (prevents dropped calls on serverless)
     const webhookUrl = process.env.MAKE_WEBHOOK_URL;
     const webhookSecret = process.env.MAKE_WEBHOOK_SECRET || '';
+
     if (webhookUrl) {
-      fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-voxa-secret': webhookSecret,
-        },
-        body: JSON.stringify({
-          job_id: job.id,
-          user_id: user.id,
-          keyword,
-          target_wc,
-        }),
-      }).catch(() => {});
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 4000); // 4s safety timeout
+
+        const resp = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-voxa-secret': webhookSecret,
+          },
+          body: JSON.stringify({
+            job_id: job.id,
+            user_id: user.id,
+            keyword,
+            target_wc,
+          }),
+          signal: ctrl.signal,
+        });
+
+        clearTimeout(timer);
+
+        if (!resp.ok) {
+          // Log on server for visibility; still return 201 so UI is responsive
+          console.warn('Make webhook non-2xx', resp.status);
+        }
+      } catch (err) {
+        console.error('Make webhook fetch failed:', (err as Error)?.message);
+        // You could also set this job to 'failed' here if you prefer strict behavior.
+      }
     }
 
     return NextResponse.json(
