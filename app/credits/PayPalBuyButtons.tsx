@@ -27,7 +27,7 @@ export default function PayPalBuyButtons() {
           if (!el) return;
           el.innerHTML = '';
           try {
-            paypal.Buttons({
+            const btn = paypal.Buttons({
               style: { shape: 'rect', label: 'buynow' },
               createOrder: async () => {
                 const res = await fetch('/api/paypal/create-order', {
@@ -50,16 +50,21 @@ export default function PayPalBuyButtons() {
                 });
                 const j = await verify.json();
                 if (!verify.ok) alert(j?.error || 'Verify failed');
-                else alert('Credits added! You can start creating jobs.');
+                else alert('Credits added!');
               },
               onError: (e: any) => {
                 console.error('PayPal error', e);
-                setErr('PayPal error. Please try again.');
+                setErr('PayPal error. Please refresh and try again.');
               },
-            }).render(el);
+            });
+            // Render can throw; wrap it
+            try { btn.render(el); } catch (e: any) {
+              console.error('Buttons render failed', e);
+              setErr(e?.message || 'PayPal render failed');
+            }
           } catch (e: any) {
-            console.error('Buttons render failed', e);
-            setErr(e?.message || 'PayPal render failed');
+            console.error('Buttons init failed', e);
+            setErr(e?.message || 'PayPal init failed');
           }
         };
 
@@ -73,9 +78,7 @@ export default function PayPalBuyButtons() {
     return () => { cancelled = true; };
   }, []);
 
-  if (err) {
-    return <div className="rounded-xl border border-red-800 p-4 text-sm text-red-600">PayPal error: {err}</div>;
-  }
+  if (err) return <div className="rounded-xl border border-red-800 p-4 text-sm text-red-600">PayPal error: {err}</div>;
 
   return (
     <div className="grid gap-4 sm:grid-cols-3">
