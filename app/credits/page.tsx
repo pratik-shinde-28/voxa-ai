@@ -1,12 +1,10 @@
 import Link from 'next/link';
-
-const packs = [
-  { id: 'pack5',  label: '5 credits',  price: '$5',  desc: 'Good for a quick test' },
-  { id: 'pack10', label: '10 credits', price: '$10', desc: 'For small batches' },
-  { id: 'pack30', label: '30 credits', price: '$25', desc: 'Best value' },
-];
+import Script from 'next/script';
+import PayPalBuyButtons from './PayPalBuyButtons';
 
 export default function CreditsPage() {
+  const clientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
+
   return (
     <main className="max-w-3xl mx-auto p-6">
       <h1 className="text-2xl font-semibold">Buy Credits</h1>
@@ -14,23 +12,26 @@ export default function CreditsPage() {
         Credits are pay as you go. 1 credit = 1 article draft.
       </p>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        {packs.map((p) => (
-          <div key={p.id} className="rounded-2xl border p-4">
-            <div className="text-lg font-medium">{p.label}</div>
-            <div className="mt-1 text-2xl">{p.price}</div>
-            <div className="mt-1 text-sm text-gray-600">{p.desc}</div>
-            {/* Placeholder button — will become PayPal button in next step */}
-            <button
-              disabled
-              className="mt-4 w-full rounded-lg border px-3 py-2 text-sm opacity-60"
-              title="Coming soon"
-            >
-              Pay with PayPal (soon)
-            </button>
+      {!clientId ? (
+        <div className="mt-6 rounded-xl border p-4 text-sm">
+          <div className="font-medium">PayPal not configured</div>
+          <p className="mt-1 text-gray-600">
+            Set <code>NEXT_PUBLIC_PAYPAL_CLIENT_ID</code> in your environment variables, then redeploy.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Load PayPal SDK */}
+          <Script
+            src={`https://www.paypal.com/sdk/js?client-id=${clientId}&components=buttons&currency=USD`}
+            strategy="afterInteractive"
+          />
+          {/* Buttons for 5 / 10 / 30 credits */}
+          <div className="mt-6">
+            <PayPalBuyButtons />
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
       <div className="mt-8 rounded-2xl border p-4">
         <div className="font-medium">Need more volume?</div>
