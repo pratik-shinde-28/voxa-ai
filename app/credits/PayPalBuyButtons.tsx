@@ -9,7 +9,6 @@ function loadPayPalSdkOnce(): Promise<any> {
 
   const EXISTING = document.getElementById('paypal-sdk-unified') as HTMLScriptElement | null;
   if (EXISTING) {
-    // If already present, resolve when window.paypal is ready
     if ((window as any).paypal) return Promise.resolve((window as any).paypal);
     return new Promise((resolve, reject) => {
       EXISTING.addEventListener('load', () => resolve((window as any).paypal));
@@ -17,13 +16,14 @@ function loadPayPalSdkOnce(): Promise<any> {
     });
   }
 
-  // One unified script that works for both buttons & subscriptions
   const s = document.createElement('script');
   s.id = 'paypal-sdk-unified';
   s.src =
     `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}` +
     `&components=buttons,subscriptions&currency=USD&vault=true&intent=subscription`;
   s.async = true;
+  s.crossOrigin = 'anonymous';
+  s.referrerPolicy = 'no-referrer-when-downgrade';
 
   const p = new Promise<any>((resolve, reject) => {
     s.onload = () => resolve((window as any).paypal);
@@ -59,9 +59,10 @@ export default function PayPalBuyButtons() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pack }),
+                cache: 'no-store',
               });
               const j = await res.json();
-              if (!res.ok) throw new Error(j?.error || 'create-order failed');
+              if (!res.ok || !j.id) throw new Error(j?.error || 'create-order failed');
               return j.id;
             },
             onApprove: async (data: any, actions: any) => {
@@ -70,6 +71,7 @@ export default function PayPalBuyButtons() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ orderID: data.orderID }),
+                cache: 'no-store',
               });
               const j = await verify.json();
               if (!verify.ok) alert(j?.error || 'Verify failed');
@@ -94,7 +96,7 @@ export default function PayPalBuyButtons() {
 
   if (err) {
     return (
-      <div className="rounded-xl border p-4 text-sm text-red-600">
+      <div className="rounded-xl border border-red-800 p-4 text-sm text-red-600">
         PayPal error: {err}
       </div>
     );

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 
+// reuse the same loader id so both pages share one SDK
 function loadPayPalSdkOnce(): Promise<any> {
   const clientId = (process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || '').trim();
   if (!clientId) return Promise.reject(new Error('PayPal client ID missing'));
@@ -20,6 +21,8 @@ function loadPayPalSdkOnce(): Promise<any> {
     `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}` +
     `&components=buttons,subscriptions&currency=USD&vault=true&intent=subscription`;
   s.async = true;
+  s.crossOrigin = 'anonymous';
+  s.referrerPolicy = 'no-referrer-when-downgrade';
 
   const p = new Promise<any>((resolve, reject) => {
     s.onload = () => resolve((window as any).paypal);
@@ -62,6 +65,7 @@ export default function SubscribeButton() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ subscriptionID: data.subscriptionID }),
+                cache: 'no-store',
               });
               const j = await res.json();
               if (!res.ok) throw new Error(j?.error || 'Activation failed');
@@ -85,7 +89,7 @@ export default function SubscribeButton() {
 
   if (err) {
     return (
-      <div className="rounded-xl border p-4 text-sm text-red-600">
+      <div className="rounded-xl border border-red-800 p-4 text-sm text-red-600">
         {err}
       </div>
     );
