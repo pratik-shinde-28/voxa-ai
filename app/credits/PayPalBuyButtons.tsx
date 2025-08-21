@@ -1,41 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { loadPayPalSdk } from '@/lib/paypal/load-sdk';
 
 type PackKey = 'pack5' | 'pack10' | 'pack30';
-
-/** Load the PayPal SDK for one-time buttons only (no subscriptions params) */
-function loadPayPalButtonsSdk(): Promise<any> {
-  const clientId = (process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || '').trim();
-  if (!clientId) return Promise.reject(new Error('PayPal client ID missing'));
-
-  const EXISTING = document.getElementById('pp-sdk-buttons') as HTMLScriptElement | null;
-  if (EXISTING) {
-    if ((window as any).paypal) return Promise.resolve((window as any).paypal);
-    return new Promise((resolve, reject) => {
-      EXISTING.addEventListener('load', () => resolve((window as any).paypal));
-      EXISTING.addEventListener('error', () => reject(new Error('PayPal SDK failed')));
-    });
-  }
-
-  const src =
-    `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}` +
-    `&components=buttons&currency=USD`;
-
-  const s = document.createElement('script');
-  s.id = 'pp-sdk-buttons';
-  s.src = src;
-  s.async = true;
-  s.crossOrigin = 'anonymous';
-  s.referrerPolicy = 'no-referrer-when-downgrade';
-
-  const p = new Promise<any>((resolve, reject) => {
-    s.onload = () => resolve((window as any).paypal);
-    s.onerror = () => reject(new Error('PayPal SDK failed'));
-  });
-
-  document.head.appendChild(s);
-  return p;
-}
 
 export default function PayPalBuyButtons() {
   const [ready, setReady] = useState(false);
@@ -48,43 +15,52 @@ export default function PayPalBuyButtons() {
   useEffect(() => {
     let cancelled = false;
 
-    loadPayPalButtonsSdk()
+    loadPayPalSdk()
       .then((paypal) => {
         if (cancelled) return;
+        if (!paypal?.Buttons) {
+          setErr('PayPal Buttons unavailable');
+          return;
+        }
 
         const mount = (el: HTMLDivElement | null, pack: PackKey) => {
           if (!el) return;
           el.innerHTML = '';
-          paypal.Buttons({
-            style: { shape: 'rect', label: 'buynow' },
-            createOrder: async () => {
-              const res = await fetch('/api/paypal/create-order', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ pack }),
-                cache: 'no-store',
-              });
-              const j = await res.json();
-              if (!res.ok || !j.id) throw new Error(j?.error || 'create-order failed');
-              return j.id;
-            },
-            onApprove: async (data: any, actions: any) => {
-              await actions.order.capture();
-              const verify = await fetch('/api/paypal/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ orderID: data.orderID }),
-                cache: 'no-store',
-              });
-              const j = await verify.json();
-              if (!verify.ok) alert(j?.error || 'Verify failed');
-              else alert('Credits added! You can start creating jobs.');
-            },
-            onError: (e: any) => {
-              console.error('PayPal error', e);
-              alert('Payment error. Please try again.');
-            },
-          }).render(el);
+          try {
+            paypal.Buttons({
+              style: { shape: 'rect', label: 'buynow' },
+              createOrder: async () => {
+                const res = await fetch('/api/paypal/create-order', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ pack }),
+                  cache: 'no-store',
+                });
+                const j = await res.json();
+                if (!res.ok || !j.id) throw new Error(j?.error || 'create-order failed');
+                return j.id;
+              },
+              onApprove: async (data: any, actions: any) => {
+                await actions.order.capture();
+                const verify = await fetch('/api/paypal/verify', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ orderID: data.orderID }),
+                  cache: 'no-store',
+                });
+                const j = await verify.json();
+                if (!verify.ok) alert(j?.error || 'Verify failed');
+                else alert('Credits added! You can start creating jobs.');
+              },
+              onError: (e: any) => {
+                console.error('PayPal error', e);
+                setErr('PayPal error. Please try again.');
+              },
+            }).render(el);
+          } catch (e: any) {
+            console.error('Buttons render failed', e);
+            setErr(e?.message || 'PayPal render failed');
+          }
         };
 
         mount(ref5.current,  'pack5');

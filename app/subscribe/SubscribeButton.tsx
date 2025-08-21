@@ -1,39 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-
-/** Load the PayPal SDK for subscriptions (vault + intent=subscription) */
-function loadPayPalSubscriptionsSdk(): Promise<any> {
-  const clientId = (process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || '').trim();
-  if (!clientId) return Promise.reject(new Error('PayPal client ID missing'));
-
-  const EXISTING = document.getElementById('pp-sdk-subs') as HTMLScriptElement | null;
-  if (EXISTING) {
-    if ((window as any).paypal) return Promise.resolve((window as any).paypal);
-    return new Promise((resolve, reject) => {
-      EXISTING.addEventListener('load', () => resolve((window as any).paypal));
-      EXISTING.addEventListener('error', () => reject(new Error('PayPal SDK failed')));
-    });
-  }
-
-  const src =
-    `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}` +
-    `&components=buttons&vault=true&intent=subscription`;
-
-  const s = document.createElement('script');
-  s.id = 'pp-sdk-subs';
-  s.src = src;
-  s.async = true;
-  s.crossOrigin = 'anonymous';
-  s.referrerPolicy = 'no-referrer-when-downgrade';
-
-  const p = new Promise<any>((resolve, reject) => {
-    s.onload = () => resolve((window as any).paypal);
-    s.onerror = () => reject(new Error('PayPal SDK failed'));
-  });
-
-  document.head.appendChild(s);
-  return p;
-}
+import { loadPayPalSdk } from '@/lib/paypal/load-sdk';
 
 export default function SubscribeButton() {
   const ref = useRef<HTMLDivElement>(null);
@@ -50,38 +17,44 @@ export default function SubscribeButton() {
       return;
     }
 
-    loadPayPalSubscriptionsSdk()
+    loadPayPalSdk()
       .then((paypal) => {
         if (cancelled || !ref.current) return;
-
+        if (!paypal?.Buttons) {
+          setErr('PayPal Buttons unavailable');
+          return;
+        }
         ref.current.innerHTML = '';
-
-        paypal.Buttons({
-          style: { shape: 'rect', label: 'subscribe' },
-          createSubscription: (_data: any, actions: any) => {
-            return actions.subscription.create({ plan_id: planId });
-          },
-          onApprove: async (data: any) => {
-            try {
-              const res = await fetch('/api/paypal/subscriptions/activate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ subscriptionID: data.subscriptionID }),
-                cache: 'no-store',
-              });
-              const j = await res.json();
-              if (!res.ok) throw new Error(j?.error || 'Activation failed');
-              alert('Subscription activated. 250 credits added!');
-            } catch (e: any) {
-              alert(e.message || 'Activation failed');
-            }
-          },
-          onError: (e: any) => {
-            console.error('PayPal subscription error', e);
-            alert('Payment error. Please try again.');
-          },
-        }).render(ref.current);
-
+        try {
+          paypal.Buttons({
+            style: { shape: 'rect', label: 'subscribe' },
+            createSubscription: (_data: any, actions: any) => {
+              return actions.subscription.create({ plan_id: planId });
+            },
+            onApprove: async (data: any) => {
+              try {
+                const res = await fetch('/api/paypal/subscriptions/activate', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ subscriptionID: data.subscriptionID }),
+                  cache: 'no-store',
+                });
+                const j = await res.json();
+                if (!res.ok) throw new Error(j?.error || 'Activation failed');
+                alert('Subscription activated. 250 credits added!');
+              } catch (e: any) {
+                setErr(e?.message || 'Activation failed');
+              }
+            },
+            onError: (e: any) => {
+              console.error('PayPal subscription error', e);
+              setErr('PayPal error. Please try again.');
+            },
+          }).render(ref.current);
+        } catch (e: any) {
+          console.error('Subscribe render failed', e);
+          setErr(e?.message || 'PayPal render failed');
+        }
         setReady(true);
       })
       .catch((e: Error) => setErr(e.message));
