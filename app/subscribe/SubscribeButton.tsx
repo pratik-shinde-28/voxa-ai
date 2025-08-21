@@ -1,12 +1,12 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 
-// reuse the same loader id so both pages share one SDK
-function loadPayPalSdkOnce(): Promise<any> {
+/** Load the PayPal SDK for subscriptions (vault + intent=subscription) */
+function loadPayPalSubscriptionsSdk(): Promise<any> {
   const clientId = (process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID || '').trim();
   if (!clientId) return Promise.reject(new Error('PayPal client ID missing'));
 
-  const EXISTING = document.getElementById('paypal-sdk-unified') as HTMLScriptElement | null;
+  const EXISTING = document.getElementById('pp-sdk-subs') as HTMLScriptElement | null;
   if (EXISTING) {
     if ((window as any).paypal) return Promise.resolve((window as any).paypal);
     return new Promise((resolve, reject) => {
@@ -15,11 +15,13 @@ function loadPayPalSdkOnce(): Promise<any> {
     });
   }
 
-  const s = document.createElement('script');
-  s.id = 'paypal-sdk-unified';
-  s.src =
+  const src =
     `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}` +
-    `&components=buttons,subscriptions&currency=USD&vault=true&intent=subscription`;
+    `&components=buttons&vault=true&intent=subscription`;
+
+  const s = document.createElement('script');
+  s.id = 'pp-sdk-subs';
+  s.src = src;
   s.async = true;
   s.crossOrigin = 'anonymous';
   s.referrerPolicy = 'no-referrer-when-downgrade';
@@ -48,7 +50,7 @@ export default function SubscribeButton() {
       return;
     }
 
-    loadPayPalSdkOnce()
+    loadPayPalSubscriptionsSdk()
       .then((paypal) => {
         if (cancelled || !ref.current) return;
 
@@ -77,7 +79,7 @@ export default function SubscribeButton() {
           onError: (e: any) => {
             console.error('PayPal subscription error', e);
             alert('Payment error. Please try again.');
-          }
+          },
         }).render(ref.current);
 
         setReady(true);
@@ -88,11 +90,7 @@ export default function SubscribeButton() {
   }, [planId]);
 
   if (err) {
-    return (
-      <div className="rounded-xl border border-red-800 p-4 text-sm text-red-600">
-        {err}
-      </div>
-    );
+    return <div className="rounded-xl border border-red-800 p-4 text-sm text-red-600">{err}</div>;
   }
 
   return (
