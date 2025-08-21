@@ -5,6 +5,11 @@ import { loadPayPalSdk } from '@/lib/paypal/loadSdk';
 
 type Props = { clientId: string; planId: string; userId: string };
 
+// Minimal data shape PayPal passes to onApprove for Subscriptions
+type SubscriptionApproveData = {
+  subscriptionID?: string;
+};
+
 export default function SubscribeButton({ clientId, planId, userId }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -18,7 +23,7 @@ export default function SubscribeButton({ clientId, planId, userId }: Props) {
       try {
         const paypal = await loadPayPalSdk({
           clientId,
-          // Same union params as credits page, so the SDK is identical across SPA
+          // Keep these identical across the app to avoid SDK conflicts
           components: 'buttons',
           currency: 'USD',
           intent: 'subscription',
@@ -29,34 +34,43 @@ export default function SubscribeButton({ clientId, planId, userId }: Props) {
 
         const btn = paypal.Buttons({
           style: { layout: 'vertical', label: 'subscribe' },
-          createSubscription: (_data: any, actions: any) => {
+          createSubscription: (_data: unknown, actions: any) => {
             return actions.subscription.create({ plan_id: planId });
           },
-          onApprove: (data: any) => {
-            const subId = data.subscriptionID as string;
+          onApprove: (data: SubscriptionApproveData) => {
+            const subId = data.subscriptionID ?? '';
             const u = encodeURIComponent(userId || '');
+            if (!subId) {
+              setErr('Subscription ID missing from PayPal response.');
+              return;
+            }
             window.location.href = `/paypal/subscribed?subscription_id=${subId}&u=${u}`;
           },
-          onError: (e: any) => {
+          onError: (e: unknown) => {
             console.error('PayPal Subscription error', e);
             setErr('PayPal subscription failed to initialize. Check plan ID and currency.');
           },
         });
 
-        btn.render(ref.current).then(() => {
-          if (!destroyed) setReady(true);
-        }).catch((e: any) => {
-          console.error('PayPal render failed', e);
-          if (!destroyed) setErr('PayPal failed to render. Reload and try again.');
-        });
-      } catch (e: any) {
+        btn
+          .render(ref.current)
+          .then(() => {
+            if (!destroyed) setReady(true);
+          })
+          .catch((e: unknown) => {
+            console.error('PayPal render failed', e);
+            if (!destroyed) setErr('PayPal failed to render. Reload and try again.');
+          });
+      } catch (e: unknown) {
         console.error(e);
-        if (!destroyed) setErr(e.message || 'PayPal SDK failed');
+        if (!destroyed) setErr((e as Error).message || 'PayPal SDK failed');
       }
     }
 
     init();
-    return () => { destroyed = true; };
+    return () => {
+      destroyed = true;
+    };
   }, [clientId, planId, userId]);
 
   return (
