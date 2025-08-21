@@ -1,10 +1,5 @@
-import dynamic from 'next/dynamic';
 import Link from 'next/link';
-
-const PayPalBuyButtons = dynamic(() => import('./PayPalBuyButtons'), {
-  ssr: false,
-  loading: () => <div className="rounded-xl border p-4 text-sm text-gray-500">Loading PayPal…</div>,
-});
+import PayPalBuyButtons from './PayPalBuyButtons'; // ← client component
 
 export default function CreditsPage() {
   return (
